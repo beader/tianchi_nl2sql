@@ -402,8 +402,7 @@ def predict(opt):
         select_value = select_values(data, t1_preds, t2_preds, 0.995)
         t1_preds['conds'] = [list(v) for v in select_value]
 
-    output_file = '../submit/submit.json'
-    with open(output_file, 'w') as f:
+    with open(opt.submit_output, 'w') as f:
         for item in task1_preds:
             f.write(json.dumps(item, ensure_ascii=False) + '\n')
 
@@ -430,6 +429,8 @@ def main():
                               default='../model/chinese_wwm_L-12_H-768_A-12')
     infer_parser.add_argument('--task1_output',
                               required=True, default='../submit/task1_output.json')
+    infer_parser.add_argument('--submit_output',
+                              required=True, default='../submit/submit.json')
     infer_parser.set_defaults(func=infer)
 
     opt = parser.parse_args()

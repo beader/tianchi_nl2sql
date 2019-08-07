@@ -4,15 +4,23 @@
 
 ### 环境依赖
 
+深度学习框架: tensorflow, keras
+
 Docker 镜像:
 
 |REPOSITORY|TAG|IMAGE ID|
 |:---:|:---:|:---:|
 |tensorflow/tensorflow|nightly-gpu-py3-jupyter|6e60684e9aa4|
 
-python 依赖:
+CUDA 版本: 10.0.130
+
+Python 依赖:
 
 见 `./code/requirements.txt`
+
+```
+pip install -r ./code/requirements.txt
+```
 
 ### 训练
 

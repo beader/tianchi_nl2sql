@@ -402,7 +402,8 @@ def predict(opt):
         select_value = select_values(data, t1_preds, t2_preds, 0.995)
         t1_preds['conds'] = [list(v) for v in select_value]
 
-    with open(opt.task1_output, 'w') as f:
+    output_file = '../submit/submit.json'
+    with open(output_file, 'w') as f:
         for item in task1_preds:
             f.write(json.dumps(item, ensure_ascii=False) + '\n')
 

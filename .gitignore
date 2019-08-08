@@ -3,4 +3,4 @@ __pycache__
 
 data/
 model/chinese_wwm_L-12_H-768_A-12
-model/*.hd5
+model/*.h5

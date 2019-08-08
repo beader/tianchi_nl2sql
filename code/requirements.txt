@@ -9,3 +9,6 @@ keras-pos-embd==0.11.0
 keras-position-wise-feed-forward==0.6.0
 keras-self-attention==0.41.0
 keras-transformer==0.28.0
+cn2an==0.3.6
+thulac==0.2.0
+zhon==1.1.5

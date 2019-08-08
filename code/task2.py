@@ -431,7 +431,7 @@ def main():
                               required=True, default='../submit/task1_output.json')
     infer_parser.add_argument('--submit_output',
                               required=True, default='../submit/submit.json')
-    infer_parser.set_defaults(func=infer)
+    infer_parser.set_defaults(func=predict)
 
     opt = parser.parse_args()
     opt.func(opt)

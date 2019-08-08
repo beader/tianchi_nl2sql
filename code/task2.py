@@ -203,7 +203,7 @@ def synthesis_nl_pair(train_data):
     nl_to_sql = {}
     for data in train_data:
         nl_with_label, conds_nl_to_sql = synthesis_conds_nl(data)
-        all_pair += [(data.question.text.lower(), syn_nl, label)
+        all_pair += [(data.question.text.lower(), syn_nl.lower(), label)
                      for syn_nl, label in nl_with_label]
         nl_to_sql[data.question.text.lower()] = conds_nl_to_sql
     return all_pair, nl_to_sql
@@ -379,7 +379,9 @@ def train(opt):
     model, tokenizer = construct_model(paths)
     train_iter = DataSequence(train_sample, tokenizer, batch_size=48, max_len=120)
     model.fit_generator(train_iter, epochs=5, workers=4)
-    model.save_weights('../model/task2.h5')
+
+    output_weights = os.path.join(opt.model_dir, 'task2.h5')
+    model.save_weights(output_weights)
 
 
 def predict(opt):
@@ -389,7 +391,7 @@ def predict(opt):
 
     paths = get_checkpoint_paths(opt.bert_model)
     model, tokenizer = construct_model(paths)
-    model.load_weights('../model/task2.h5')
+    model.load_weights(opt.model_weights)
 
     test_iter = DataSequence(test_pair, tokenizer, batch_size=48, shuffle=False)
     test_preds = model.predict_generator(test_iter, verbose=1)
@@ -412,6 +414,7 @@ def main():
     subparsers = parser.add_subparsers()
 
     train_parser = subparsers.add_parser('train')
+    train_parser.add_argument('--model_dir', required=True)
     train_parser.add_argument('--train_data_file',
                               default='../data/train/train.json')
     train_parser.add_argument('--train_table_file',
@@ -421,6 +424,7 @@ def main():
     train_parser.set_defaults(func=train)
 
     infer_parser = subparsers.add_parser('infer')
+    infer_parser.add_argument('--model_weights', required=True)
     infer_parser.add_argument('--test_data_file',
                               default='../data/test/test.json')
     infer_parser.add_argument('--test_table_file',

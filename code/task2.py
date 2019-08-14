@@ -164,7 +164,7 @@ def generate_text_conds_nl(header, value_list):
     return result
 
 
-def synthesis_conds_nl(data):
+def synthesis_conds_nl(data, select_col=None):
     nl_text = {}
     nl_real = {}
     conds = {}
@@ -172,7 +172,13 @@ def synthesis_conds_nl(data):
         conds = {tuple(c):1 for c in data.sql.conds}
     value_in_question = extract_value_in_question(data.question.text)
 
+    if not select_col:
+        select_col = list(range(len(data.table.header)))
+
     for idx, header in enumerate(data.table.header):
+        if idx not in select_col:
+            continue    
+
         h = header[0]
         value_in_table = generate_conds_value(data, h)
 
@@ -204,6 +210,18 @@ def synthesis_nl_pair(train_data):
     for data in train_data:
         nl_with_label, conds_nl_to_sql = synthesis_conds_nl(data)
         all_pair += [(data.question.text.lower(), syn_nl.lower(), label)
+                     for syn_nl, label in nl_with_label]
+        nl_to_sql[data.question.text.lower()] = conds_nl_to_sql
+    return all_pair, nl_to_sql
+
+
+def synthesis_nl_pair_selected(train_data, task1_pred):
+    all_pair = []
+    nl_to_sql = {}
+    for data, result in zip(train_data, task1_pred):
+        select_col = [c[0] for c in result['conds']]
+        nl_with_label, conds_nl_to_sql = synthesis_conds_nl(data, select_col)
+        all_pair += [(data.question.text.lower(), syn_nl.lower(), label) 
                      for syn_nl, label in nl_with_label]
         nl_to_sql[data.question.text.lower()] = conds_nl_to_sql
     return all_pair, nl_to_sql
@@ -387,17 +405,21 @@ def train(opt):
 def predict(opt):
     test_tables = read_tables(opt.test_table_file)
     test_data = read_data(opt.test_data_file, test_tables)[:]
-    test_pair, test_map = synthesis_nl_pair(test_data)
+    task1_preds = load_preds(opt.task1_output)
+
+    if opt.synthesis_with_task1_output:
+        test_pair, test_map = synthesis_nl_pair_selected(test_data, task1_preds)
+    else:
+        test_pair, test_map = synthesis_nl_pair(test_data)
 
     paths = get_checkpoint_paths(opt.bert_model)
     model, tokenizer = construct_model(paths)
     model.load_weights(opt.model_weights)
 
-    test_iter = DataSequence(test_pair, tokenizer, batch_size=48, shuffle=False)
+    test_iter = DataSequence(test_pair, tokenizer,
+                             batch_size=opt.batch_size, shuffle=False)
     test_preds = model.predict_generator(test_iter, verbose=1)
-
     task2_preds = merge_question_values(test_pair, test_map, test_preds)
-    task1_preds = load_preds(opt.task1_output)
 
     for data, t1_preds in zip(test_data, task1_preds):
         t2_preds = task2_preds[data.question.text.lower()]
@@ -431,6 +453,10 @@ def main():
                               default='../data/test/test.tables.json')
     infer_parser.add_argument('--bert_model',
                               default='../model/chinese_wwm_L-12_H-768_A-12')
+    infer_parser.add_argument('--synthesis_with_task1_output',
+                              default=False)
+    infer_parser.add_argument('--batch_size',
+                              default=48)
     infer_parser.add_argument('--task1_output',
                               required=True, default='../submit/task1_output.json')
     infer_parser.add_argument('--submit_output',

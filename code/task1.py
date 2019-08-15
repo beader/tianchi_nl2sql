@@ -381,6 +381,7 @@ def train(opt):
 def infer(opt):
     test_tables = read_tables(opt.test_table_file)
     test_data = read_data(opt.test_data_file, test_tables)
+    print('read {} test queries'.format(len(test_data)))
     paths = get_checkpoint_paths(opt.bert_model)
     token_dict = load_vocabulary(paths.vocab)
     query_tokenizer = QueryTokenizer(token_dict)

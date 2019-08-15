@@ -7,6 +7,7 @@ import thulac
 import argparse
 from collections import defaultdict
 from zhon import hanzi
+from tqdm import tqdm
 
 import keras.backend as K
 from nl2sql.utils import read_data, read_tables
@@ -177,7 +178,7 @@ def synthesis_conds_nl(data, select_col=None):
 
     for idx, header in enumerate(data.table.header):
         if idx not in select_col:
-            continue    
+            continue
 
         h = header[0]
         value_in_table = generate_conds_value(data, h)
@@ -207,7 +208,7 @@ def synthesis_conds_nl(data, select_col=None):
 def synthesis_nl_pair(train_data):
     all_pair = []
     nl_to_sql = {}
-    for data in train_data:
+    for data in tqdm(train_data):
         nl_with_label, conds_nl_to_sql = synthesis_conds_nl(data)
         all_pair += [(data.question.text.lower(), syn_nl.lower(), label)
                      for syn_nl, label in nl_with_label]
@@ -218,10 +219,10 @@ def synthesis_nl_pair(train_data):
 def synthesis_nl_pair_selected(train_data, task1_pred):
     all_pair = []
     nl_to_sql = {}
-    for data, result in zip(train_data, task1_pred):
+    for data, result in tqdm(zip(train_data, task1_pred), total=len(train_data)):
         select_col = [c[0] for c in result['conds']]
         nl_with_label, conds_nl_to_sql = synthesis_conds_nl(data, select_col)
-        all_pair += [(data.question.text.lower(), syn_nl.lower(), label) 
+        all_pair += [(data.question.text.lower(), syn_nl.lower(), label)
                      for syn_nl, label in nl_with_label]
         nl_to_sql[data.question.text.lower()] = conds_nl_to_sql
     return all_pair, nl_to_sql
@@ -408,8 +409,10 @@ def predict(opt):
     task1_preds = load_preds(opt.task1_output)
 
     if opt.synthesis_with_task1_output:
+        print('generating selected test pairs')
         test_pair, test_map = synthesis_nl_pair_selected(test_data, task1_preds)
     else:
+        print('generating all test pairs')
         test_pair, test_map = synthesis_nl_pair(test_data)
 
     paths = get_checkpoint_paths(opt.bert_model)
@@ -456,6 +459,7 @@ def main():
     infer_parser.add_argument('--synthesis_with_task1_output',
                               default=False)
     infer_parser.add_argument('--batch_size',
+                              type=int,
                               default=48)
     infer_parser.add_argument('--task1_output',
                               required=True, default='../submit/task1_output.json')

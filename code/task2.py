@@ -428,6 +428,8 @@ def predict(opt):
         t2_preds = task2_preds[data.question.text.lower()]
         select_value = select_values(data, t1_preds, t2_preds, 0.995)
         t1_preds['conds'] = [list(v) for v in select_value]
+        if len(t1_preds['conds']) == 1:
+            t1_preds['cond_conn_op'] = 0
 
     with open(opt.submit_output, 'w') as f:
         for item in task1_preds:

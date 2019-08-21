@@ -304,7 +304,7 @@ class EvaluateCallback(Callback):
 
 def outputs_to_sqls(preds_cond_conn_op, preds_sel_agg, preds_cond_op, header_lens, label_encoder):
     preds_cond_conn_op = np.argmax(preds_cond_conn_op, axis=-1)
-    preds_sel_agg = np.argmax(preds_sel_agg, axis=-1)
+    # preds_sel_agg = np.argmax(preds_sel_agg, axis=-1)
     preds_cond_op = np.argmax(preds_cond_op, axis=-1)
 
     sqls = []
@@ -313,6 +313,10 @@ def outputs_to_sqls(preds_cond_conn_op, preds_sel_agg, preds_cond_op, header_len
                                                           preds_sel_agg,
                                                           preds_cond_op,
                                                           header_lens):
+        sel_agg = sel_agg[:header_len]
+        sel_agg[sel_agg == sel_agg[:, :-1].max()] = 1
+        sel_agg = np.argmax(sel_agg, axis=-1)
+
         sql = label_encoder.decode(cond_conn_op, sel_agg, cond_op)
         sql['conds'] = [cond for cond in sql['conds'] if cond[0] < header_len]
         sel = []

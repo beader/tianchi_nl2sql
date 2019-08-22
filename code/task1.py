@@ -7,7 +7,7 @@ import re
 import keras.backend as K
 import numpy as np
 from keras.callbacks import Callback, ModelCheckpoint
-from keras.layers import Dense, Input, Lambda, Masking, Multiply
+from keras.layers import Dense, Input, Lambda, Masking, Multiply, Concatenate
 from keras.models import Model
 from keras.optimizers import Adam
 from keras.preprocessing.sequence import pad_sequences
@@ -19,25 +19,32 @@ from tqdm import tqdm
 from nl2sql.utils import (SQL, MultiSentenceTokenizer, Query, read_data,
                           read_tables)
 from nl2sql.utils.loss import custom_sparse_categorical_crossentropy
+from nl2sql.utils.optimizer import RAdam
 
 
 class QueryTokenizer(MultiSentenceTokenizer):
     col_type_token_dict = {'text': '[unused11]', 'real': '[unused12]'}
 
-    def tokenize(self, query: Query):
+    def tokenize(self, query: Query, col_orders=None):
         question_tokens = [self._token_cls] + \
             self._tokenize(query.question.text)
         header_tokens = []
 
-        for col_name, col_type in query.table.header:
+        if col_orders is None:
+            col_orders = np.arange(len(query.table.header))
+
+        header = [query.table.header[i] for i in col_orders]
+
+        for col_name, col_type in header:
             col_type_token = self.col_type_token_dict[col_type]
             col_name_tokens = self._tokenize(col_name)
             header_tokens.append([col_type_token] + col_name_tokens)
+
         all_tokens = [question_tokens] + header_tokens
         return self._pack(*all_tokens)
 
-    def encode(self, query: Query):
-        tokens, tokens_lens = self.tokenize(query)
+    def encode(self, query: Query, col_orders=None):
+        tokens, tokens_lens = self.tokenize(query, col_orders)
         token_ids = self._convert_tokens_to_ids(tokens)
         segment_ids = [0] * len(token_ids)
         header_indices = np.cumsum(tokens_lens)
@@ -80,13 +87,46 @@ class SqlLabelEncoder:
         }
 
 
+def extract_column_features(s):
+    """
+    - uniq_value 占比
+    - uniq_chars 占比
+    - value 平均长度
+    - value 长度标准差
+    """
+    values = s.tolist()
+    value_lens = []
+    uniq_vals = set()
+    uniq_chars = set()
+    n_chars = 0
+    for val in values:
+        uniq_vals.add(val)
+        value_lens.append(len(val))
+        for char in val:
+            n_chars += 1
+            uniq_chars.add(char)
+    n_uniq_vals = len(uniq_vals)
+    n_uniq_chars = len(uniq_chars)
+    mean_val_len = np.mean(value_lens)
+    std_val_len = np.std(value_lens) / mean_val_len
+    mean_val_len = mean_val_len
+
+    return np.array([
+        n_uniq_vals / len(values),
+        n_uniq_chars / n_chars,
+        mean_val_len / 20,
+        std_val_len
+    ])
+
+
 class DataSequence(Sequence):
-    def __init__(self, data, tokenizer, label_encoder, is_train=True, max_len=160, batch_size=32, shuffle=True, global_indices=None):
+    def __init__(self, data, tokenizer, label_encoder, is_train=True, max_len=160, batch_size=32, shuffle=True, shuffle_header=True, global_indices=None):
         self.data = data
         self.batch_size = batch_size
         self.tokenizer = tokenizer
         self.label_encoder = label_encoder
         self.shuffle = shuffle
+        self.shuffle_header = shuffle_header
         self.is_train = is_train
         self.max_len = max_len
         if global_indices is None:
@@ -109,28 +149,44 @@ class DataSequence(Sequence):
         batch_data = [self.data[i] for i in batch_data_indices]
 
         TOKEN_IDS, SEGMENT_IDS = [], []
-        HEADER_IDS, HEADER_MASK = [], []
+        HEADER_IDS, HEADER_MASK = [], [],
+        HEADER_FEATS = []
+
         COND_CONN_OP = []
         SEL_AGG = []
         COND_OP = []
 
         for query in batch_data:
+            table = query.table
 
-            token_ids, segment_ids, header_ids = self.tokenizer.encode(query)
+            col_orders = np.arange(len(table.header))
+            if self.shuffle_header:
+                np.random.shuffle(col_orders)
+
+            token_ids, segment_ids, header_ids = self.tokenizer.encode(
+                query, col_orders)
             header_ids = [hid for hid in header_ids if hid < self.max_len]
             header_mask = [1] * len(header_ids)
+            col_orders = col_orders[: len(header_ids)]
+
+            header_feats = table.df.apply(extract_column_features).T.values
+            header_feats = header_feats[col_orders]
 
             TOKEN_IDS.append(token_ids)
             SEGMENT_IDS.append(segment_ids)
             HEADER_IDS.append(header_ids)
             HEADER_MASK.append(header_mask)
+            HEADER_FEATS.append(header_feats)
 
             if not self.is_train:
                 continue
             sql = query.sql
 
             cond_conn_op, sel_agg, cond_op = self.label_encoder.encode(
-                sql, num_cols=len(header_ids))
+                sql, num_cols=len(table.header))
+
+            sel_agg = sel_agg[col_orders]
+            cond_op = cond_op[col_orders]
 
             COND_CONN_OP.append(cond_conn_op)
             SEL_AGG.append(sel_agg)
@@ -140,12 +196,15 @@ class DataSequence(Sequence):
         SEGMENT_IDS = self._pad_sequences(SEGMENT_IDS, max_len=self.max_len)
         HEADER_IDS = self._pad_sequences(HEADER_IDS)
         HEADER_MASK = self._pad_sequences(HEADER_MASK)
+        HEADER_FEATS = pad_sequences(
+            HEADER_FEATS, padding='post', dtype='float')
 
         inputs = {
             'input_token_ids': TOKEN_IDS,
             'input_segment_ids': SEGMENT_IDS,
             'input_header_ids': HEADER_IDS,
-            'input_header_mask': HEADER_MASK
+            'input_header_mask': HEADER_MASK,
+            'input_header_feats': HEADER_FEATS
         }
 
         if self.is_train:
@@ -206,13 +265,16 @@ def build_model(bert_model_path):
         [x, inp_header_ids])  # (None, h_len, 768)
     header_mask = Lambda(lambda x: K.expand_dims(
         x, axis=-1))(inp_header_mask)  # (None, h_len, 1)
+
     x_for_header = Multiply()([x_for_header, header_mask])
     x_for_header = Masking()(x_for_header)
 
     p_sel_agg = Dense(num_sel_agg, activation='softmax',
                       name='output_sel_agg')(x_for_header)
+
+    x_for_cond_op = Concatenate(axis=-1)([x_for_header, p_sel_agg])
     p_cond_op = Dense(num_cond_op, activation='softmax',
-                      name='output_cond_op')(x_for_header)
+                      name='output_cond_op')(x_for_cond_op)
 
     model = Model(
         [inp_token_ids, inp_segment_ids, inp_header_ids, inp_header_mask],

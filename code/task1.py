@@ -420,6 +420,7 @@ def train(opt):
         is_train=True,
         max_len=160,
         shuffle=False,
+        shuffle_header=False,
         batch_size=opt.batch_size
     )
 
@@ -462,6 +463,7 @@ def infer(opt):
         is_train=False,
         max_len=160,
         shuffle=False,
+        shuffle_header=False,
         batch_size=opt.batch_size
     )
     pred_sqls = []

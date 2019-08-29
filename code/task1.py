@@ -22,6 +22,10 @@ from nl2sql.utils.loss import custom_sparse_categorical_crossentropy
 from nl2sql.utils.optimizer import RAdam
 
 
+def remove_brackets(s):
+    return re.sub(r'[\(\（].*[\)\）]', '', s)
+
+
 class QueryTokenizer(MultiSentenceTokenizer):
     col_type_token_dict = {'text': '[unused11]', 'real': '[unused12]'}
 
@@ -37,6 +41,7 @@ class QueryTokenizer(MultiSentenceTokenizer):
 
         for col_name, col_type in header:
             col_type_token = self.col_type_token_dict[col_type]
+            col_name = remove_brackets(col_name)
             col_name_tokens = self._tokenize(col_name)
             header_tokens.append([col_type_token] + col_name_tokens)
 

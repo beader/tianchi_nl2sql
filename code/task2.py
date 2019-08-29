@@ -206,24 +206,24 @@ def synthesis_conds_nl(data, select_col=None):
 
 
 def synthesis_nl_pair(train_data):
-    all_pair = []
+    all_pair = {}
     nl_to_sql = {}
     for data in tqdm(train_data):
         nl_with_label, conds_nl_to_sql = synthesis_conds_nl(data)
-        all_pair += [(data.question.text.lower(), syn_nl.lower(), label)
-                     for syn_nl, label in nl_with_label]
+        pairs = [(syn_nl.lower(), label) for syn_nl, label in nl_with_label]
+        all_pair[data.question.text.lower()] = pairs
         nl_to_sql[data.question.text.lower()] = conds_nl_to_sql
     return all_pair, nl_to_sql
 
 
 def synthesis_nl_pair_selected(train_data, task1_pred):
-    all_pair = []
+    all_pair = {}
     nl_to_sql = {}
     for data, result in tqdm(zip(train_data, task1_pred), total=len(train_data)):
         select_col = [c[0] for c in result['conds']]
         nl_with_label, conds_nl_to_sql = synthesis_conds_nl(data, select_col)
-        all_pair += [(data.question.text.lower(), syn_nl.lower(), label)
-                     for syn_nl, label in nl_with_label]
+        pairs = [(syn_nl.lower(), label) for syn_nl, label in nl_with_label]
+        all_pair[data.question.text.lower()] = pairs
         nl_to_sql[data.question.text.lower()] = conds_nl_to_sql
     return all_pair, nl_to_sql
 

@@ -383,6 +383,42 @@ def load_preds(pred_file):
     return result
 
 
+def merge_candidate(test_pair, test_map, same_question_list):
+    values = [p for q in same_question_list for p in test_pair[q]]
+    unique_values = list(set(values))
+    
+    maps = {}
+    for q in same_question_list:
+        maps.update(test_map[q])
+    
+    for q in same_question_list:
+        test_pair[q] = unique_values
+        test_map[q] = maps
+ 
+
+def synchronize_nl_pair(test_data, test_pair, test_map):
+    table_group = defaultdict(list)
+    for idx, data in enumerate(test_data):
+        table_group[data.table.id].append((idx, data.question.text.lower()))
+    
+    for table_id in table_group:
+        question_list = table_group[table_id]
+        start_idx = question_list[0][0]
+        same_question_list = [question_list[0][1]]
+        for q in question_list[1:]:
+            if q[0] == start_idx + 1:
+                same_question_list.append(q[1])
+                start_idx = q[0]
+            else:
+                merge_candidate(test_pair, test_map, same_question_list)
+                start_idx = q[0]
+                same_question_list = [q[1]]   
+        merge_candidate(test_pair, test_map, same_question_list)
+    
+    new_test_pair = [(k, v[0], v[1]) for k, vs in test_pair.items() for v in vs]
+    return new_test_pair, test_map
+
+
 def train(opt):
     train_tables = read_tables(opt.train_table_file)
     train_data = read_data(opt.train_data_file, train_tables)
@@ -419,10 +455,11 @@ def predict(opt):
     model, tokenizer = construct_model(paths)
     model.load_weights(opt.model_weights)
 
-    test_iter = DataSequence(test_pair, tokenizer,
+    new_test_pair, test_map = synchronize_nl_pair(test_data, test_pair, test_map)
+    test_iter = DataSequence(new_test_pair, tokenizer,
                              batch_size=opt.batch_size, shuffle=False)
     test_preds = model.predict_generator(test_iter, verbose=1)
-    task2_preds = merge_question_values(test_pair, test_map, test_preds)
+    task2_preds = merge_question_values(new_test_pair, test_map, test_preds)
 
     for data, t1_preds in zip(test_data, task1_preds):
         t2_preds = task2_preds[data.question.text.lower()]

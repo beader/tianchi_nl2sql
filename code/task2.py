@@ -168,9 +168,6 @@ def generate_text_conds_nl(header, value_list):
 def synthesis_conds_nl(data, select_col=None):
     nl_text = {}
     nl_real = {}
-    conds = {}
-    if data.sql:
-        conds = {tuple(c):1 for c in data.sql.conds}
     value_in_question = extract_value_in_question(data.question.text)
 
     if not select_col:
@@ -199,33 +196,25 @@ def synthesis_conds_nl(data, select_col=None):
     all_nl.update(nl_real)
     all_nl.update(nl_text)
 
-    nl_with_label = [(nl, 1) if k in conds else (nl, 0)
-                     for k, nl in all_nl.items()]
     conds_nl_to_sql = {v.lower(): k for k, v in all_nl.items()}
-    return nl_with_label, conds_nl_to_sql
+    return conds_nl_to_sql
 
 
 def synthesis_nl_pair(train_data):
-    all_pair = {}
     nl_to_sql = {}
     for data in tqdm(train_data):
-        nl_with_label, conds_nl_to_sql = synthesis_conds_nl(data)
-        pairs = [(syn_nl.lower(), label) for syn_nl, label in nl_with_label]
-        all_pair[data.question.text.lower()] = pairs
+        conds_nl_to_sql = synthesis_conds_nl(data)
         nl_to_sql[data.question.text.lower()] = conds_nl_to_sql
-    return all_pair, nl_to_sql
+    return nl_to_sql
 
 
 def synthesis_nl_pair_selected(train_data, task1_pred):
-    all_pair = {}
     nl_to_sql = {}
     for data, result in tqdm(zip(train_data, task1_pred), total=len(train_data)):
         select_col = [c[0] for c in result['conds']]
-        nl_with_label, conds_nl_to_sql = synthesis_conds_nl(data, select_col)
-        pairs = [(syn_nl.lower(), label) for syn_nl, label in nl_with_label]
-        all_pair[data.question.text.lower()] = pairs
+        conds_nl_to_sql = synthesis_conds_nl(data, select_col)
         nl_to_sql[data.question.text.lower()] = conds_nl_to_sql
-    return all_pair, nl_to_sql
+    return nl_to_sql
 
 
 class DataSequence(Sequence):
@@ -381,48 +370,49 @@ def load_preds(pred_file):
         for line in file:
             result.append(json.loads(line))
     return result
-
-
-def merge_candidate(test_pair, test_map, same_question_list):
-    values = [p for q in same_question_list for p in test_pair[q]]
-    unique_values = list(set(values))
-    
-    maps = {}
-    for q in same_question_list:
-        maps.update(test_map[q])
-    
-    for q in same_question_list:
-        test_pair[q] = unique_values
-        test_map[q] = maps
  
 
-def synchronize_nl_pair(test_data, test_pair, test_map):
+def synchronize_nl_pair(test_data, test_map):
     table_group = defaultdict(list)
     for idx, data in enumerate(test_data):
         table_group[data.table.id].append((idx, data.question.text.lower()))
     
     for table_id in table_group:
         question_list = table_group[table_id]
-        start_idx = question_list[0][0]
-        same_question_list = [question_list[0][1]]
-        for q in question_list[1:]:
-            if q[0] == start_idx + 1:
-                same_question_list.append(q[1])
-                start_idx = q[0]
-            else:
-                merge_candidate(test_pair, test_map, same_question_list)
-                start_idx = q[0]
-                same_question_list = [q[1]]   
-        merge_candidate(test_pair, test_map, same_question_list)
+        col_value_map = {}
+        for q in question_list:
+            real_col_value = test_map[q[1]]
+            col_value_map.update({v:k for k, v in real_col_value.items()})
+           
+        col_values = {v: k for k, v in col_value_map.items()}
+        for q in question_list:
+            test_map[q[1]] = col_values
     
-    new_test_pair = [(k, v[0], v[1]) for k, vs in test_pair.items() for v in vs]
-    return new_test_pair, test_map
+    return test_map
+
+
+def to_data_pair(dataset, maps, istrain=False):
+    data_pair = []
+    for data in dataset:
+        question = data.question.text.lower()
+        value_map = maps[question]
+        candidates = value_map
+        if istrain:
+            conds = {tuple(c):1 for c in data.sql.conds}
+        else:
+            conds = {}
+        pairs = [(question, k, 1) if v in conds else (question, k, 0)
+                    for k, v in candidates.items()]
+        data_pair += pairs
+    return data_pair          
 
 
 def train(opt):
     train_tables = read_tables(opt.train_table_file)
     train_data = read_data(opt.train_data_file, train_tables)
-    train_pair, train_map = synthesis_nl_pair(train_data[:])
+    train_map = synthesis_nl_pair(train_data[:])
+    #train_map = synchronize_nl_pair(train_data, train_map)
+    train_pair = to_data_pair(train_data, train_map, istrain=True)
 
     random.seed(666)
     positive_pair = [p for p in train_pair if p[2] == 1]
@@ -446,17 +436,18 @@ def predict(opt):
 
     if opt.synthesis_with_task1_output:
         print('generating selected test pairs')
-        test_pair, test_map = synthesis_nl_pair_selected(test_data, task1_preds)
+        test_map = synthesis_nl_pair_selected(test_data, task1_preds)
     else:
         print('generating all test pairs')
-        test_pair, test_map = synthesis_nl_pair(test_data)
+        test_map = synthesis_nl_pair(test_data)
 
     paths = get_checkpoint_paths(opt.bert_model)
     model, tokenizer = construct_model(paths)
     model.load_weights(opt.model_weights)
 
-    new_test_pair, test_map = synchronize_nl_pair(test_data, test_pair, test_map)
-    test_iter = DataSequence(new_test_pair, tokenizer,
+    test_map = synchronize_nl_pair(test_data, test_map)
+    test_pair = to_data_pair(test_data, test_map, istrain=False)
+    test_iter = DataSequence(test_pair, tokenizer,
                              batch_size=opt.batch_size, shuffle=False)
     test_preds = model.predict_generator(test_iter, verbose=1)
     task2_preds = merge_question_values(new_test_pair, test_map, test_preds)

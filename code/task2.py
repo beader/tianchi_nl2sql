@@ -450,7 +450,7 @@ def predict(opt):
     test_iter = DataSequence(test_pair, tokenizer,
                              batch_size=opt.batch_size, shuffle=False)
     test_preds = model.predict_generator(test_iter, verbose=1)
-    task2_preds = merge_question_values(new_test_pair, test_map, test_preds)
+    task2_preds = merge_question_values(test_pair, test_map, test_preds)
 
     for data, t1_preds in zip(test_data, task1_preds):
         t2_preds = task2_preds[data.question.text.lower()]

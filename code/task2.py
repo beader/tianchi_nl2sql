@@ -1,3 +1,4 @@
+import os
 import re
 import random
 import cn2an
@@ -5,6 +6,7 @@ import math
 import json
 import thulac
 import argparse
+import numpy as np
 from collections import defaultdict
 from zhon import hanzi
 from tqdm import tqdm
@@ -208,13 +210,28 @@ def synthesis_nl_pair(train_data):
     return nl_to_sql
 
 
-def synthesis_nl_pair_selected(train_data, task1_pred):
-    nl_to_sql = {}
-    for data, result in tqdm(zip(train_data, task1_pred), total=len(train_data)):
-        select_col = [c[0] for c in result['conds']]
-        conds_nl_to_sql = synthesis_conds_nl(data, select_col)
-        nl_to_sql[data.question.text.lower()] = conds_nl_to_sql
-    return nl_to_sql
+#def synthesis_nl_pair_selected(train_data, task1_pred):
+#    nl_to_sql = {}
+#    for data, result in tqdm(zip(train_data, task1_pred), total=len(train_data)):
+#        select_col = [c[0] for c in result['conds']]
+#        conds_nl_to_sql = synthesis_conds_nl(data, select_col)
+#        nl_to_sql[data.question.text.lower()] = conds_nl_to_sql
+#    return nl_to_sql
+
+def synthesis_nl_pair_selected(train_data, task1_preds):
+    params_list = [{'data': data, 'pred': pred} 
+                   for data, pred in zip(train_data, task1_preds)]
+    from multiprocessing import Pool
+    p = Pool(8)
+    result = p.map(synthesis_nl_pair_selected_task, params_list)
+    return {r[0]: r[1] for r in result}
+    
+def synthesis_nl_pair_selected_task(params):
+    data = params['data']
+    pred = params['pred']
+    select_col = [c[0] for c in pred['conds']]
+    conds_nl_to_sql = synthesis_conds_nl(data, select_col)
+    return (data.question.text.lower(), conds_nl_to_sql)
 
 
 class DataSequence(Sequence):

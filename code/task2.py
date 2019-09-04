@@ -13,7 +13,9 @@ from tqdm import tqdm
 
 import keras.backend as K
 from nl2sql.utils import read_data, read_tables
-from keras_bert import get_checkpoint_paths, load_vocabulary, Tokenizer, load_trained_model_from_checkpoint
+from keras_bert import (get_checkpoint_paths, load_vocabulary, Tokenizer,
+                        build_model_from_config,
+                        load_trained_model_from_checkpoint)
 from keras.utils.data_utils import Sequence
 from keras.preprocessing.sequence import pad_sequences
 from keras.layers import *
@@ -22,7 +24,7 @@ from keras.optimizers import Adam
 from keras.callbacks import Callback
 from functools import wraps
 
- 
+
 def func_timer(function):
     '''
     用装饰器实现函数计时
@@ -31,16 +33,19 @@ def func_timer(function):
     '''
     @wraps(function)
     def function_timer(*args, **kwargs):
-        print('[Function: {name} start...]'.format(name = function.__name__))
+        print('[Function: {name} start...]'.format(name=function.__name__))
         t0 = time.time()
         result = function(*args, **kwargs)
         t1 = time.time()
-        print('[Function: {name} finished, spent time: {time:.2f}s]'.format(name = function.__name__,time = t1 - t0))
+        print('[Function: {name} finished, spent time: {time:.2f}s]'.format(
+            name=function.__name__, time=t1 - t0))
         return result
     return function_timer
 
+
 cn_num = '〇一二三四五六七八九零壹贰叁肆伍陆柒捌玖貮两'
 cn_word = '〇一二三四五六七八九零壹贰叁肆伍陆柒捌玖貮两十拾百佰千仟万萬亿億兆点'
+
 
 def isfloat(value):
     try:
@@ -69,7 +74,7 @@ def convert_num(string):
     if len(set('一二三四五六七八九十') & set(string)) > 0 or len(string) > 1:
         try:
             f = float(cn_to_an(string))
-            if int(f) == f:   
+            if int(f) == f:
                 result.append(str(int(f)))
             else:
                 result.append(str(f))
@@ -98,26 +103,26 @@ def extract_value_in_question(question):
     question = question.replace('一线', '')
     question = question.replace('一等', '')
     question = question.replace('一手', '')
-    
+
     all_values = []
     num_values = re.findall(r'[-+]?[0-9]*\.?[0-9]+', question)
     all_values += num_values
-    
+
     num_year_values = re.findall(r'[0-9][0-9]年', question)
     all_values += ['20{}'.format(v[:-1]) for v in num_year_values]
-    
+
     cn_year_values = re.findall(r'[{}][{}]年'.format(cn_num, cn_num), question)
     all_values += [convert_year(v) for v in cn_year_values]
-    
+
     if '负' in question:
         all_values.append('0')
-       
-    cn_num1 = [num for i in re.findall(r'[{}]*\.?[{}]+'.format(cn_word, cn_word), 
-                                        question)
-                  for num in convert_num(i)]
+
+    cn_num1 = [num for i in re.findall(r'[{}]*\.?[{}]+'.format(cn_word, cn_word),
+                                       question)
+               for num in convert_num(i)]
     all_values += cn_num1
-    
-    cn_num2 = re.findall(r'[0-9]*\.?[{}]+'.format(cn_word), question)              
+
+    cn_num2 = re.findall(r'[0-9]*\.?[{}]+'.format(cn_word), question)
     for word in cn_num2:
         num = re.findall(r'[-+]?[0-9]*\.?[0-9]+', word)
         if word[-1] == '亿':
@@ -126,7 +131,7 @@ def extract_value_in_question(question):
         for n in num:
             word = word.replace(n, num_cn_map[n])
         all_values += convert_num(word)
-    
+
     return list(set(all_values))
 
 
@@ -156,7 +161,8 @@ def generate_nonequal_conds_nl(header, value_list):
 
 def generate_conds_value(data, header):
     q = data.question.text
-    col_v = [v for v in data.table.df[header] if len(v) < 20 and len(set(q) & set(v)) > 0]
+    col_v = [v for v in data.table.df[header]
+             if len(v) < 20 and len(set(q) & set(v)) > 0]
     return list(set(col_v))
 
 
@@ -193,14 +199,15 @@ def synthesis_conds_nl(data, select_col=None):
 
         if header[1] == 'text':
             syn_nl = generate_text_conds_nl(h, value_in_table)
-            syn_nl = {(idx, k[0], k[1]):v for k, v in syn_nl.items()}
+            syn_nl = {(idx, k[0], k[1]): v for k, v in syn_nl.items()}
             nl_text.update(syn_nl)
         elif header[1] == 'real':
             if len(value_in_table) == 1:
-                syn_nl = generate_real_conds_nl(h, value_in_question + value_in_table)
+                syn_nl = generate_real_conds_nl(
+                    h, value_in_question + value_in_table)
             else:
                 syn_nl = generate_real_conds_nl(h, value_in_question)
-            syn_nl = {(idx, k[0], k[1]):v for k, v in syn_nl.items()}
+            syn_nl = {(idx, k[0], k[1]): v for k, v in syn_nl.items()}
             nl_real.update(syn_nl)
 
     all_nl = {}
@@ -209,6 +216,7 @@ def synthesis_conds_nl(data, select_col=None):
 
     conds_nl_to_sql = {v.lower(): k for k, v in all_nl.items()}
     return conds_nl_to_sql
+
 
 @func_timer
 def synthesis_nl_pair(train_data):
@@ -219,7 +227,7 @@ def synthesis_nl_pair(train_data):
     return nl_to_sql
 
 
-#def synthesis_nl_pair_selected(train_data, task1_pred):
+# def synthesis_nl_pair_selected(train_data, task1_pred):
 #    nl_to_sql = {}
 #    for data, result in tqdm(zip(train_data, task1_pred), total=len(train_data)):
 #        select_col = [c[0] for c in result['conds']]
@@ -229,13 +237,14 @@ def synthesis_nl_pair(train_data):
 
 @func_timer
 def synthesis_nl_pair_selected(train_data, task1_preds):
-    params_list = [{'data': data, 'pred': pred} 
+    params_list = [{'data': data, 'pred': pred}
                    for data, pred in zip(train_data, task1_preds)]
     result = []
     for params in params_list:
         result.append(synthesis_nl_pair_selected_task(params))
     return {r[0]: r[1] for r in result}
-    
+
+
 def synthesis_nl_pair_selected_task(params):
     data = params['data']
     pred = params['pred']
@@ -261,7 +270,8 @@ class DataSequence(Sequence):
 
     def __getitem__(self, batch_id):
         batch_data_indices = \
-            self._global_indices[batch_id * self.batch_size: (batch_id + 1) * self.batch_size]
+            self._global_indices[batch_id *
+                                 self.batch_size: (batch_id + 1) * self.batch_size]
         batch_data = [self.data[i] for i in batch_data_indices]
 
         X1, X2 = [], []
@@ -305,11 +315,18 @@ class SimpleTokenizer(Tokenizer):
         return R
 
 
-def construct_model(paths):
+def construct_model(paths, load_bert_weights=False):
     token_dict = load_vocabulary(paths.vocab)
     tokenizer = SimpleTokenizer(token_dict)
 
-    bert_model = load_trained_model_from_checkpoint(paths.config, paths.checkpoint, seq_len=None)
+    if load_bert_weights == True:
+        bert_model = load_trained_model_from_checkpoint(
+            paths.config, paths.checkpoint, seq_len=None)
+    else:
+        bert_model, _ = build_model_from_config(
+            paths.config,
+            seq_len=None)
+
     for l in bert_model.layers:
         l.trainable = True
 
@@ -320,7 +337,7 @@ def construct_model(paths):
     y_pred = Dense(1, activation='sigmoid', name='output_similarity')(x_cls)
 
     model = Model([x1_in, x2_in], y_pred)
-    model.compile(loss={'output_similarity':'binary_crossentropy'},
+    model.compile(loss={'output_similarity': 'binary_crossentropy'},
                   optimizer=Adam(1e-5),
                   metrics={'output_similarity': 'accuracy'})
 
@@ -352,12 +369,12 @@ def deduplicate_conds(select_conds):
 
 def find_match_values(conds_pred, current_output, sorted_result):
     select_col_op = [v[:2] for v in current_output]
-    for v, p in sorted_result: # find value with the same column and op
+    for v, p in sorted_result:  # find value with the same column and op
         if v[:2] in conds_pred and v[:2] not in select_col_op:
             current_output.append(v)
             select_col_op.append(v[:2])
 
-    if len(conds_pred) > len(current_output): # find value with same column
+    if len(conds_pred) > len(current_output):  # find value with same column
         select_col = [v[0] for v in current_output]
         conds_col = {v[0]: v for v in conds_pred}
         for v, p in sorted_result:
@@ -397,24 +414,25 @@ def load_preds(pred_file):
         for line in file:
             result.append(json.loads(line))
     return result
- 
+
+
 @func_timer
 def synchronize_nl_pair(test_data, test_map):
     table_group = defaultdict(list)
     for idx, data in enumerate(test_data):
         table_group[data.table.id].append((idx, data.question.text.lower()))
-    
+
     for table_id in table_group:
         question_list = table_group[table_id]
         col_value_map = {}
         for q in question_list:
             real_col_value = test_map[q[1]]
-            col_value_map.update({v:k for k, v in real_col_value.items()})
-           
+            col_value_map.update({v: k for k, v in real_col_value.items()})
+
         col_values = {v: k for k, v in col_value_map.items()}
         for q in question_list:
             test_map[q[1]] = col_values
-    
+
     return test_map
 
 
@@ -425,13 +443,13 @@ def to_data_pair(dataset, maps, istrain=False):
         value_map = maps[question]
         candidates = value_map
         if istrain:
-            conds = {tuple(c):1 for c in data.sql.conds}
+            conds = {tuple(c): 1 for c in data.sql.conds}
         else:
             conds = {}
         pairs = [(question, k, 1) if v in conds else (question, k, 0)
-                    for k, v in candidates.items()]
+                 for k, v in candidates.items()]
         data_pair += pairs
-    return data_pair          
+    return data_pair
 
 
 def train(opt):
@@ -449,7 +467,8 @@ def train(opt):
 
     paths = get_checkpoint_paths(opt.bert_model)
     model, tokenizer = construct_model(paths)
-    train_iter = DataSequence(train_sample, tokenizer, batch_size=48, max_len=120)
+    train_iter = DataSequence(train_sample, tokenizer,
+                              batch_size=48, max_len=120)
     model.fit_generator(train_iter, epochs=5, workers=4)
 
     output_weights = os.path.join(opt.model_dir, 'task2.h5')

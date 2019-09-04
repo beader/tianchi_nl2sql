@@ -13,6 +13,7 @@ from keras.optimizers import Adam
 from keras.preprocessing.sequence import pad_sequences
 from keras.utils.data_utils import Sequence
 from keras_bert import (Tokenizer, get_checkpoint_paths,
+                        build_model_from_config,
                         load_trained_model_from_checkpoint, load_vocabulary)
 from tqdm import tqdm
 
@@ -92,38 +93,6 @@ class SqlLabelEncoder:
         }
 
 
-def extract_column_features(s):
-    """
-    - uniq_value 占比
-    - uniq_chars 占比
-    - value 平均长度
-    - value 长度标准差
-    """
-    values = s.tolist()
-    value_lens = []
-    uniq_vals = set()
-    uniq_chars = set()
-    n_chars = 0
-    for val in values:
-        uniq_vals.add(val)
-        value_lens.append(len(val))
-        for char in val:
-            n_chars += 1
-            uniq_chars.add(char)
-    n_uniq_vals = len(uniq_vals)
-    n_uniq_chars = len(uniq_chars)
-    mean_val_len = np.mean(value_lens)
-    std_val_len = np.std(value_lens) / mean_val_len
-    mean_val_len = mean_val_len
-
-    return np.array([
-        n_uniq_vals / len(values),
-        n_uniq_chars / n_chars,
-        mean_val_len / 20,
-        std_val_len
-    ])
-
-
 class DataSequence(Sequence):
     def __init__(self, data, tokenizer, label_encoder, is_train=True, max_len=160, batch_size=32, shuffle=True, shuffle_header=True, global_indices=None):
         self.data = data
@@ -155,7 +124,6 @@ class DataSequence(Sequence):
 
         TOKEN_IDS, SEGMENT_IDS = [], []
         HEADER_IDS, HEADER_MASK = [], [],
-        HEADER_FEATS = []
 
         COND_CONN_OP = []
         SEL_AGG = []
@@ -174,14 +142,10 @@ class DataSequence(Sequence):
             header_mask = [1] * len(header_ids)
             col_orders = col_orders[: len(header_ids)]
 
-            header_feats = table.df.apply(extract_column_features).T.values
-            header_feats = header_feats[col_orders]
-
             TOKEN_IDS.append(token_ids)
             SEGMENT_IDS.append(segment_ids)
             HEADER_IDS.append(header_ids)
             HEADER_MASK.append(header_mask)
-            HEADER_FEATS.append(header_feats)
 
             if not self.is_train:
                 continue
@@ -201,15 +165,12 @@ class DataSequence(Sequence):
         SEGMENT_IDS = self._pad_sequences(SEGMENT_IDS, max_len=self.max_len)
         HEADER_IDS = self._pad_sequences(HEADER_IDS)
         HEADER_MASK = self._pad_sequences(HEADER_MASK)
-        HEADER_FEATS = pad_sequences(
-            HEADER_FEATS, padding='post', dtype='float')
 
         inputs = {
             'input_token_ids': TOKEN_IDS,
             'input_segment_ids': SEGMENT_IDS,
             'input_header_ids': HEADER_IDS,
-            'input_header_mask': HEADER_MASK,
-            'input_header_feats': HEADER_FEATS
+            'input_header_mask': HEADER_MASK
         }
 
         if self.is_train:
@@ -236,15 +197,22 @@ class DataSequence(Sequence):
             np.random.shuffle(self._global_indices)
 
 
-def build_model(bert_model_path):
+def build_model(bert_model_path, load_bert_weights=False):
     def seq_gather(x):
         seq, idxs = x
         idxs = K.cast(idxs, 'int32')
         return K.tf.batch_gather(seq, idxs)
 
     paths = get_checkpoint_paths(bert_model_path)
-    bert_model = load_trained_model_from_checkpoint(
-        paths.config, paths.checkpoint, seq_len=None)
+
+    if load_bert_weights == True:
+        bert_model = load_trained_model_from_checkpoint(
+            paths.config, paths.checkpoint, seq_len=None)
+    else:
+        bert_model, _ = build_model_from_config(
+            paths.config,
+            seq_len=None)
+
     for l in bert_model.layers:
         l.trainable = True
     num_sel_agg = len(SQL.agg_sql_dict) + 1

@@ -4,8 +4,8 @@ import random
 import cn2an
 import math
 import json
-import thulac
 import argparse
+import time
 import numpy as np
 from collections import defaultdict
 from zhon import hanzi
@@ -20,25 +20,27 @@ from keras.layers import *
 from keras.models import Model
 from keras.optimizers import Adam
 from keras.callbacks import Callback
+from functools import wraps
 
-
-thu1 = thulac.thulac()
-
-CN_UNIT = {
-    '十' : 10,
-    '拾' : 10,
-    '百' : 100,
-    '佰' : 100,
-    '千' : 1000,
-    '仟' : 1000,
-    '万' : 10000,
-    '萬' : 10000,
-    '亿' : 100000000,
-    '億' : 100000000,
-    '兆' : 1000000000000,
-}
+ 
+def func_timer(function):
+    '''
+    用装饰器实现函数计时
+    :param function: 需要计时的函数
+    :return: None
+    '''
+    @wraps(function)
+    def function_timer(*args, **kwargs):
+        print('[Function: {name} start...]'.format(name = function.__name__))
+        t0 = time.time()
+        result = function(*args, **kwargs)
+        t1 = time.time()
+        print('[Function: {name} finished, spent time: {time:.2f}s]'.format(name = function.__name__,time = t1 - t0))
+        return result
+    return function_timer
 
 cn_num = '〇一二三四五六七八九零壹贰叁肆伍陆柒捌玖貮两'
+cn_word = '〇一二三四五六七八九零壹贰叁肆伍陆柒捌玖貮两十拾百佰千仟万萬亿億兆点'
 
 def isfloat(value):
     try:
@@ -63,18 +65,18 @@ def an_to_cn(string):
 
 
 def convert_num(string):
-    string = string.replace('百分之', '')
-    string = string.replace('第', '')
-    string = string.replace('个', '')
-    result = [cn_to_an(string)]
-
-    max_value = 0
-    for k in CN_UNIT:
-        pos_idx = string.find(k)
-        if pos_idx != -1:
-            max_value = cn_to_an(string[: pos_idx])
-    if max_value != 0 and max_value != '':
-        result.append(max_value)
+    result = []
+    if len(set('一二三四五六七八九十') & set(string)) > 0 or len(string) > 1:
+        try:
+            f = float(cn_to_an(string))
+            if int(f) == f:   
+                result.append(str(int(f)))
+            else:
+                result.append(str(f))
+        except:
+            pass
+        if string.endswith('万') or string.endswith('亿'):
+            result.append(cn_to_an(string[:-1]))
     return result
 
 
@@ -89,35 +91,42 @@ def convert_year(string):
 
 
 def extract_value_in_question(question):
+    question = question.replace('一下', '')
+    question = question.replace('一平', '')
+    question = question.replace('一共', '')
+    question = question.replace('一本', '')
+    question = question.replace('一线', '')
+    question = question.replace('一等', '')
+    question = question.replace('一手', '')
+    
     all_values = []
     num_values = re.findall(r'[-+]?[0-9]*\.?[0-9]+', question)
     all_values += num_values
-
+    
     num_year_values = re.findall(r'[0-9][0-9]年', question)
     all_values += ['20{}'.format(v[:-1]) for v in num_year_values]
-
+    
     cn_year_values = re.findall(r'[{}][{}]年'.format(cn_num, cn_num), question)
     all_values += [convert_year(v) for v in cn_year_values]
-
+    
     if '负' in question:
         all_values.append('0')
-
-    q_cut = thu1.cut(question)
-    cn_num_values = []
-    for word, tag in q_cut:
-        if tag == 'm' and word not in ['一下', '几']:
-            if word in all_values:
-                continue
-            num = re.findall(r'[-+]?[0-9]*\.?[0-9]+', word)
-            num_cn_map = {n: an_to_cn(n) for n in num}
-            for n in num:
-                word = word.replace(n, num_cn_map[n])
-            cn_num_values += convert_num(word)
-        if tag == 't':
-            year_value = convert_year(word)
-            if year_value != word:
-                cn_num_values.append(year_value)
-    all_values += cn_num_values
+       
+    cn_num1 = [num for i in re.findall(r'[{}]*\.?[{}]+'.format(cn_word, cn_word), 
+                                        question)
+                  for num in convert_num(i)]
+    all_values += cn_num1
+    
+    cn_num2 = re.findall(r'[0-9]*\.?[{}]+'.format(cn_word), question)              
+    for word in cn_num2:
+        num = re.findall(r'[-+]?[0-9]*\.?[0-9]+', word)
+        if word[-1] == '亿':
+            all_values += [str(int(float(n)*10000)) for n in num]
+        num_cn_map = {n: an_to_cn(n) for n in num}
+        for n in num:
+            word = word.replace(n, num_cn_map[n])
+        all_values += convert_num(word)
+    
     return list(set(all_values))
 
 
@@ -201,7 +210,7 @@ def synthesis_conds_nl(data, select_col=None):
     conds_nl_to_sql = {v.lower(): k for k, v in all_nl.items()}
     return conds_nl_to_sql
 
-
+@func_timer
 def synthesis_nl_pair(train_data):
     nl_to_sql = {}
     for data in tqdm(train_data):
@@ -218,12 +227,13 @@ def synthesis_nl_pair(train_data):
 #        nl_to_sql[data.question.text.lower()] = conds_nl_to_sql
 #    return nl_to_sql
 
+@func_timer
 def synthesis_nl_pair_selected(train_data, task1_preds):
     params_list = [{'data': data, 'pred': pred} 
                    for data, pred in zip(train_data, task1_preds)]
-    from multiprocessing import Pool
-    p = Pool(8)
-    result = p.map(synthesis_nl_pair_selected_task, params_list)
+    result = []
+    for params in params_list:
+        result.append(synthesis_nl_pair_selected_task(params))
     return {r[0]: r[1] for r in result}
     
 def synthesis_nl_pair_selected_task(params):
@@ -388,7 +398,7 @@ def load_preds(pred_file):
             result.append(json.loads(line))
     return result
  
-
+@func_timer
 def synchronize_nl_pair(test_data, test_map):
     table_group = defaultdict(list)
     for idx, data in enumerate(test_data):

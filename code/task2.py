@@ -493,6 +493,7 @@ def predict(opt):
 
     test_map = synchronize_nl_pair(test_data, test_map)
     test_pair = to_data_pair(test_data, test_map, istrain=False)
+    print('n_test_pair: {}'.format(len(test_pair)))
     test_iter = DataSequence(test_pair, tokenizer,
                              batch_size=opt.batch_size, shuffle=False)
     test_preds = model.predict_generator(test_iter, verbose=1)
@@ -500,7 +501,7 @@ def predict(opt):
 
     for data, t1_preds in zip(test_data, task1_preds):
         t2_preds = task2_preds[data.question.text.lower()]
-        select_value = select_values(data, t1_preds, t2_preds, 0.995)
+        select_value = select_values(data, t1_preds, t2_preds, 0.999)
         t1_preds['conds'] = [list(v) for v in select_value]
         if len(t1_preds['conds']) == 1:
             t1_preds['cond_conn_op'] = 0

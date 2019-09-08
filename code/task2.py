@@ -499,16 +499,46 @@ def predict(opt):
     test_preds = model.predict_generator(test_iter, verbose=1)
     task2_preds = merge_question_values(test_pair, test_map, test_preds)
 
+    n_empty_sel = 0
+    n_empty_conds = 0
+    for sql in task1_preds:
+        if len(sql['sel']) == 0:
+            n_empty_sel += 1
+        if len(sql['conds']) == 0:
+            n_empty_conds += 1
+    print('n_empty_sel = {}, n_empty_conds = {}'.format(
+        n_empty_sel, n_empty_conds))
+
     for data, t1_preds in zip(test_data, task1_preds):
         t2_preds = task2_preds[data.question.text.lower()]
         select_value = select_values(data, t1_preds, t2_preds, 0.999)
         t1_preds['conds'] = [list(v) for v in select_value]
+        t1_preds['conds'] = [cond for cond in t1_preds['conds']
+                             if cond[0] not in t1_preds['sel']]
         if len(t1_preds['conds']) == 1:
             t1_preds['cond_conn_op'] = 0
+
+    task1_preds = post_process(task1_preds, test_data)
+    task1_preds = post_process(task1_preds, test_data)
 
     with open(opt.submit_output, 'w') as f:
         for item in task1_preds:
             f.write(json.dumps(item, ensure_ascii=False) + '\n')
+
+
+def post_process(preds, data):
+    for i in range(1, len(preds) - 1):
+        if len(preds[i]['conds']) > 0:
+            continue
+
+        if (data[i].table.id == data[i - 1].table.id
+                and len(preds[i - 1]['conds']) > 0):
+            preds[i]['conds'] = preds[i - 1]['conds']
+
+        elif (data[i].table.id == data[i + 1].table.id
+              and len(preds[i + 1]['conds']) > 0):
+            preds[i]['conds'] = preds[i + 1]['conds']
+    return preds
 
 
 def main():

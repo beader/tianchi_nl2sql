@@ -7,7 +7,7 @@ import json
 import argparse
 import time
 import numpy as np
-from collections import defaultdict
+from collections import defaultdict, Counter
 from zhon import hanzi
 from tqdm import tqdm
 
@@ -513,12 +513,9 @@ def predict(opt):
         t2_preds = task2_preds[data.question.text.lower()]
         select_value = select_values(data, t1_preds, t2_preds, 0.999)
         t1_preds['conds'] = [list(v) for v in select_value]
-        t1_preds['conds'] = [cond for cond in t1_preds['conds']
-                             if cond[0] not in t1_preds['sel']]
         if len(t1_preds['conds']) == 1:
             t1_preds['cond_conn_op'] = 0
 
-    task1_preds = post_process(task1_preds, test_data)
     task1_preds = post_process(task1_preds, test_data)
 
     with open(opt.submit_output, 'w') as f:
@@ -526,19 +523,112 @@ def predict(opt):
             f.write(json.dumps(item, ensure_ascii=False) + '\n')
 
 
+def group_preds(preds):
+
+    def is_similar(sql_1, sql_2):
+        if sql_1['cond_conn_op'] != sql_2['cond_conn_op']:
+            return False
+        sql_1_sel_agg = set(zip(sql_1['sel'], sql_1['agg']))
+        sql_2_sel_agg = set(zip(sql_2['sel'], sql_2['agg']))
+        if sql_1_sel_agg == sql_2_sel_agg:
+            return True
+        sql_1_conds = set([tuple(cond) for cond in sql_1['conds']])
+        sql_2_conds = set([tuple(cond) for cond in sql_2['conds']])
+        if sql_1_conds == sql_2_conds:
+            return True
+        return False
+
+    def has_similar_in_group(group, pred):
+        for sql in group:
+            if is_similar(sql, pred):
+                return True
+        return False
+
+    table_groups = dict()
+    for pred in preds:
+        if pred['table_id'] in table_groups:
+            table_groups[pred['table_id']].append(pred)
+        else:
+            table_groups[pred['table_id']] = [pred]
+
+    tgroups = dict()
+
+    for table_id, preds in table_groups.items():
+        if table_id not in tgroups:
+            tgroups[table_id] = []
+
+        for pred in preds:
+            found_group = False
+            for g in tgroups[table_id]:
+                if has_similar_in_group(g, pred):
+                    g.append(pred)
+                    found_group = True
+                    break
+            if not found_group:
+                tgroups[table_id].append([pred])
+    res = []
+    for _, groups in tgroups.items():
+        res += groups
+    return res
+
+
 def post_process(preds, data):
-    for i in range(1, len(preds) - 1):
-        if len(preds[i]['conds']) > 0:
+    def vote(preds):
+        sel_agg_cnt = Counter()
+        conds_cnt = Counter()
+        for pred in preds:
+            p_sel_agg = list(zip(pred['sel'], pred['agg']))
+            p_sel_agg = sorted(p_sel_agg, key=lambda x: x[0])
+            p_sel_agg = tuple(p_sel_agg)
+            p_conds = [tuple(cond) for cond in pred['conds']]
+            p_conds = sorted(p_conds, key=lambda x: x[0])
+            p_conds = tuple(p_conds)
+
+            sel_agg_cnt[p_sel_agg] += 1
+            conds_cnt[p_conds] += 1
+
+        return sel_agg_cnt.most_common(1)[0], conds_cnt.most_common(1)[0]
+
+    for i, pred in enumerate(preds):
+        pred['query_id'] = i
+        pred['table_id'] = data[i].table.id
+
+    preds_groups = group_preds(preds)
+
+    for group in preds_groups:
+        if len(group) < 3 or len(group) > 4:
             continue
+        sel_agg_vote, conds_vote = vote(group)
 
-        if (data[i].table.id == data[i - 1].table.id
-                and len(preds[i - 1]['conds']) > 0):
-            preds[i]['conds'] = preds[i - 1]['conds']
+        if sel_agg_vote[1] > 1:
+            sel = []
+            agg = []
+            for sel_agg in sel_agg_vote[0]:
+                sel.append(sel_agg[0])
+                agg.append(sel_agg[1])
+            for pred in group:
+                pred['sel'] = sel
+                pred['agg'] = agg
 
-        elif (data[i].table.id == data[i + 1].table.id
-              and len(preds[i + 1]['conds']) > 0):
-            preds[i]['conds'] = preds[i + 1]['conds']
-    return preds
+        if conds_vote[1] > 1:
+            conds = []
+            for cond in conds_vote[0]:
+                conds.append(list(cond))
+            if len(conds) == 0:
+                continue
+            for pred in group:
+                pred['conds'] = conds
+
+    res = []
+    for group in preds_groups:
+        for pred in group:
+            res.append(pred)
+
+    res = sorted(res, key=lambda x: x['query_id'])
+    for sql in res:
+        del sql['query_id']
+        del sql['table_id']
+    return res
 
 
 def main():

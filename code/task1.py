@@ -6,7 +6,7 @@ import re
 
 import keras.backend as K
 import numpy as np
-from keras.callbacks import Callback, ModelCheckpoint
+from keras.callbacks import (Callback, ModelCheckpoint)
 from keras.layers import Dense, Input, Lambda, Masking, Multiply, Concatenate
 from keras.models import Model
 from keras.optimizers import Adam
@@ -205,7 +205,7 @@ def build_model(bert_model_path, load_bert_weights=False):
 
     paths = get_checkpoint_paths(bert_model_path)
 
-    if load_bert_weights == True:
+    if load_bert_weights:
         bert_model = load_trained_model_from_checkpoint(
             paths.config, paths.checkpoint, seq_len=None)
     else:
@@ -256,31 +256,12 @@ def build_model(bert_model_path, load_bert_weights=False):
     return model
 
 
-class LearningRateScheduler(Callback):
-    def __init__(self, init_lr, min_lr):
-        self.passed = 0
-        self.init_lr = init_lr
-        self.min_lr = min_lr
-
-    def on_batch_begin(self, batch, logs=None):
-        if self.passed < self.params['steps']:
-            lr = (self.passed + 1) / self.params['steps'] * self.init_lr
-            K.set_value(self.model.optimizer.lr, lr)
-            self.passed += 1
-        elif self.params['steps'] <= self.passed < self.params['steps'] * 2:
-            lr = (2 - (self.passed + 1) /
-                  self.params['steps']) * (self.init_lr - self.min_lr)
-            lr += self.min_lr
-            K.set_value(self.model.optimizer.lr, lr)
-            self.passed += 1
-
-
 class EvaluateCallback(Callback):
     def __init__(self, val_dataseq):
         self.val_dataseq = val_dataseq
 
     def on_epoch_end(self, epoch, logs=None):
-        val_dataseq = self.val_dataseq
+
         is_train = self.val_dataseq.is_train
         self.val_dataseq.is_train = False
         pred_sqls = []
@@ -334,6 +315,9 @@ class EvaluateCallback(Callback):
             conds_col_id_correct / num_queries))
         print('total_acc: {}'.format(all_correct / num_queries))
         logs['val_tot_acc'] = all_correct / num_queries
+        logs['conn_acc'] = conn_correct / num_queries
+        logs['conds_acc'] = conds_correct / num_queries
+        logs['conds_col_id_acc'] = conds_col_id_correct / num_queries
         self.val_dataseq.is_train = is_train
 
 
@@ -398,24 +382,35 @@ def train(opt):
     )
 
     model = build_model(opt.bert_model)
+    learning_rate = 1e-5
     model.compile(
         loss=custom_sparse_categorical_crossentropy,
-        optimizer=Adam(5e-5)
+        optimizer=RAdam(learning_rate)
     )
+    model_path = os.path.join(opt.model_dir, 'task1.h5')
     callbacks = [
-        LearningRateScheduler(5e-5, min_lr=1e-5),
         EvaluateCallback(val_dataseq),
         ModelCheckpoint(
-            os.path.join(
-                opt.model_dir,
-                "task1.{epoch:02d}-{val_tot_acc:.3f}.hd5"
-            ),
+            model_path,
             monitor='val_tot_acc',
             mode='max',
             save_best_only=True
         )
     ]
-    model.fit_generator(train_dataseq, epochs=1, callbacks=callbacks)
+    model.fit_generator(train_dataseq, epochs=30, callbacks=callbacks)
+    model.load_weights(model_path)
+
+    # adjust loss weights
+    model.compile(
+        loss=custom_sparse_categorical_crossentropy,
+        loss_weights={
+            'output_sel_agg': 0.3,
+            'output_cond_conn_op': 0.2,
+            'output_cond_op': 1.5
+        },
+        optimizer=RAdam(lr=learning_rate)
+    )
+    model.fit_generator(train_dataseq, epochs=5, callbacks=callbacks)
 
 
 def infer(opt):

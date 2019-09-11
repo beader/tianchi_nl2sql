@@ -456,8 +456,14 @@ def train(opt):
     train_tables = read_tables(opt.train_table_file)
     train_data = read_data(opt.train_data_file, train_tables)
     train_map = synthesis_nl_pair(train_data[:])
-    #train_map = synchronize_nl_pair(train_data, train_map)
     train_pair = to_data_pair(train_data, train_map, istrain=True)
+
+    val_tables = read_tables(opt.val_table_file)
+    val_data = read_data(opt.val_data_file, val_tables)
+    val_map = synthesis_nl_pair(val_data[:])
+    val_pair = to_data_pair(val_data, val_map, istrain=True)
+
+    train_pair = train_pair + val_pair
 
     random.seed(666)
     positive_pair = [p for p in train_pair if p[2] == 1]
@@ -469,7 +475,7 @@ def train(opt):
     model, tokenizer = construct_model(paths)
     train_iter = DataSequence(train_sample, tokenizer,
                               batch_size=48, max_len=120)
-    model.fit_generator(train_iter, epochs=5, workers=4)
+    model.fit_generator(train_iter, epochs=12, workers=4)
 
     output_weights = os.path.join(opt.model_dir, 'task2.h5')
     model.save_weights(output_weights)
@@ -641,6 +647,10 @@ def main():
                               default='../data/train/train.json')
     train_parser.add_argument('--train_table_file',
                               default='../data/train/train.tables.json')
+    train_parser.add_argument('--val_data_file',
+                              default='../data/val/val.json')
+    train_parser.add_argument('--val_table_file',
+                              default='../data/val/val.tables.json')
     train_parser.add_argument('--bert_model',
                               default='../model/chinese_wwm_L-12_H-768_A-12')
     train_parser.set_defaults(func=train)

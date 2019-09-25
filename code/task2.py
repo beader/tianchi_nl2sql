@@ -18,7 +18,7 @@ from keras_bert import (get_checkpoint_paths, load_vocabulary, Tokenizer,
                         load_trained_model_from_checkpoint)
 from keras.utils.data_utils import Sequence
 from keras.preprocessing.sequence import pad_sequences
-from keras.layers import *
+from keras.layers import Input, Lambda, Dense
 from keras.models import Model
 from keras.optimizers import Adam
 from keras.callbacks import Callback
@@ -49,7 +49,7 @@ cn_word = '〇一二三四五六七八九零壹贰叁肆伍陆柒捌玖貮两十
 
 def isfloat(value):
     try:
-        v = float(value)
+        float(value)
         return True
     except ValueError:
         return False
@@ -95,7 +95,7 @@ def convert_year(string):
         return string
 
 
-def extract_value_in_question(question):
+def extract_value_from_question(question):
     question = question.replace('一下', '')
     question = question.replace('一平', '')
     question = question.replace('一共', '')
@@ -135,122 +135,81 @@ def extract_value_in_question(question):
     return list(set(all_values))
 
 
-def generate_more_conds_nl(header, value_list):
-    conds_idx = 0
-    pattern = "{}大于{}"
-    return {(conds_idx, v): pattern.format(header, v) for v in value_list}
-
-
-def generate_less_conds_nl(header, value_list):
-    conds_idx = 1
-    pattern = "{}小于{}"
-    return {(conds_idx, v): pattern.format(header, v) for v in value_list}
-
-
-def generate_equal_conds_nl(header, value_list):
-    conds_idx = 2
-    pattern = "{}是{}"
-    return {(conds_idx, v): pattern.format(header, v) for v in value_list}
-
-
-def generate_nonequal_conds_nl(header, value_list):
-    conds_idx = 3
-    pattern = "{}不是{}"
-    return {(conds_idx, v): pattern.format(header, v) for v in value_list}
-
-
-def generate_conds_value(data, header):
+def extract_value_from_table(data, header):
     q = data.question.text
     col_v = [v for v in data.table.df[header]
-             if len(v) < 20 and len(set(q) & set(v)) > 0]
+             if len(str(v)) < 20 and len(set(q) & set(str(v))) > 0]
     return list(set(col_v))
 
 
-def generate_real_conds_nl(header, value_list):
-    result = {}
-    result.update(generate_more_conds_nl(header, value_list))
-    result.update(generate_less_conds_nl(header, value_list))
-    result.update(generate_equal_conds_nl(header, value_list))
-    #result.update(generate_nonequal_conds_nl(header, value_list))
-    return result
+def generate_candidate(header, value_list, pattern_list):
+    cand = {}
+    for idx, pattern in pattern_list:
+        cand.update({(idx, v): pattern.format(header, v) for v in value_list})
+    return cand
 
 
-def generate_text_conds_nl(header, value_list):
-    result = {}
-    result.update(generate_equal_conds_nl(header, value_list))
-    #result.update(generate_nonequal_conds_nl(header, value_list))
-    return result
+def generate_real_conds_candidate(header, value_list):
+    pattern = [(0, "{}大于{}"),  # (cond_conn_op, pattern)
+               (1, "{}小于{}"),
+               (2, "{}是{}")]
+    cand = generate_candidate(header, value_list, pattern)
+    return cand
 
 
-def synthesis_conds_nl(data, select_col=None):
-    nl_text = {}
-    nl_real = {}
-    value_in_question = extract_value_in_question(data.question.text)
+def generate_text_conds_candidate(header, value_list):
+    pattern = [(2, "{}是{}")]
+    cand = generate_candidate(header, value_list, pattern)
+    return cand
 
-    if not select_col:
-        select_col = list(range(len(data.table.header)))
 
-    for idx, header in enumerate(data.table.header):
-        if idx not in select_col:
+def generate_conds_value_candidate(data, select_column=None):
+    all_candidate = {}
+    value_in_question = extract_value_from_question(data.question.text)
+
+    if not select_column:
+        select_column = list(range(len(data.table.header)))
+
+    for col_id, (col_name, col_type) in enumerate(data.table.header):
+        if col_id not in select_column:
             continue
 
-        h = header[0]
-        value_in_table = generate_conds_value(data, h)
-
-        if header[1] == 'text':
-            syn_nl = generate_text_conds_nl(h, value_in_table)
-            syn_nl = {(idx, k[0], k[1]): v for k, v in syn_nl.items()}
-            nl_text.update(syn_nl)
-        elif header[1] == 'real':
+        value_in_table = extract_value_from_table(data, col_name)
+        if col_type == 'text':
+            candidate = generate_text_conds_candidate(col_name, value_in_table)
+        elif col_type == 'real':
             if len(value_in_table) == 1:
-                syn_nl = generate_real_conds_nl(
-                    h, value_in_question + value_in_table)
+                candidate = generate_real_conds_candidate(
+                    col_name, value_in_question + value_in_table)
             else:
-                syn_nl = generate_real_conds_nl(h, value_in_question)
-            syn_nl = {(idx, k[0], k[1]): v for k, v in syn_nl.items()}
-            nl_real.update(syn_nl)
+                candidate = generate_real_conds_candidate(
+                    col_name, value_in_question)
 
-    all_nl = {}
-    all_nl.update(nl_real)
-    all_nl.update(nl_text)
+        candidate = {(col_id, conn_idx, value): cand for (
+            conn_idx, value), cand in candidate.items()}
+        all_candidate.update(candidate)
 
-    conds_nl_to_sql = {v.lower(): k for k, v in all_nl.items()}
-    return conds_nl_to_sql
+    conds_candidate = {v.lower(): k for k, v in all_candidate.items()}
+    return conds_candidate
 
 
 @func_timer
-def synthesis_nl_pair(train_data):
-    nl_to_sql = {}
-    for data in tqdm(train_data):
-        conds_nl_to_sql = synthesis_conds_nl(data)
-        nl_to_sql[data.question.text.lower()] = conds_nl_to_sql
-    return nl_to_sql
+def generate_dataset_candidate(dataset):
+    all_candidate = {}
+    for data in tqdm(dataset):
+        conds_candidate = generate_conds_value_candidate(data)
+        all_candidate[data.question.text.lower()] = conds_candidate
+    return all_candidate
 
-
-# def synthesis_nl_pair_selected(train_data, task1_pred):
-#    nl_to_sql = {}
-#    for data, result in tqdm(zip(train_data, task1_pred), total=len(train_data)):
-#        select_col = [c[0] for c in result['conds']]
-#        conds_nl_to_sql = synthesis_conds_nl(data, select_col)
-#        nl_to_sql[data.question.text.lower()] = conds_nl_to_sql
-#    return nl_to_sql
 
 @func_timer
-def synthesis_nl_pair_selected(train_data, task1_preds):
-    params_list = [{'data': data, 'pred': pred}
-                   for data, pred in zip(train_data, task1_preds)]
-    result = []
-    for params in params_list:
-        result.append(synthesis_nl_pair_selected_task(params))
-    return {r[0]: r[1] for r in result}
-
-
-def synthesis_nl_pair_selected_task(params):
-    data = params['data']
-    pred = params['pred']
-    select_col = [c[0] for c in pred['conds']]
-    conds_nl_to_sql = synthesis_conds_nl(data, select_col)
-    return (data.question.text.lower(), conds_nl_to_sql)
+def generate_dataset_candidate_selected(dataset, task1_pred):
+    all_candidate = {}
+    for data, result in tqdm(zip(dataset, task1_pred), total=len(dataset)):
+        select_col = [c[0] for c in result['conds']]
+        conds_candidate = generate_conds_value_candidate(data, select_col)
+        all_candidate[data.question.text.lower()] = conds_candidate
+    return all_candidate
 
 
 class DataSequence(Sequence):
@@ -266,7 +225,7 @@ class DataSequence(Sequence):
         self.on_epoch_end()
 
     def _pad_sequences(self, seqs, max_len=None):
-        return pad_sequences(seqs, maxlen=max_len, padding='post')
+        return pad_sequences(seqs, maxlen=max_len, padding='post', truncating='post')
 
     def __getitem__(self, batch_id):
         batch_data_indices = \
@@ -344,11 +303,11 @@ def construct_model(paths, load_bert_weights=False):
     return model, tokenizer
 
 
-def merge_question_values(nl_pair, nl_map, model_result):
+def merge_question_values(data_pair, conds_candidate, pred_result):
     result = defaultdict(list)
-    for question, pred in zip(nl_pair, model_result):
-        sel_sql = nl_map[question[0]][question[1].lower()]
-        result[question[0]].append((sel_sql, pred[0]))
+    for (question, value, _), pred in zip(data_pair, pred_result):
+        label = conds_candidate[question][value.lower()]
+        result[question].append((label, pred[0]))
     return result
 
 
@@ -357,7 +316,7 @@ def deduplicate_conds(select_conds):
     output_result = []
 
     sort_result = sorted(select_conds, key=lambda x: x[1], reverse=True)
-    for select_col, p in sort_result:
+    for select_col, _ in sort_result:
         op = select_col[1]
         col = select_col[0]
         if op < 2 and (col, op) in select_col_op:
@@ -369,7 +328,7 @@ def deduplicate_conds(select_conds):
 
 def find_match_values(conds_pred, current_output, sorted_result):
     select_col_op = [v[:2] for v in current_output]
-    for v, p in sorted_result:  # find value with the same column and op
+    for v, _ in sorted_result:  # find value with the same column and op
         if v[:2] in conds_pred and v[:2] not in select_col_op:
             current_output.append(v)
             select_col_op.append(v[:2])
@@ -377,7 +336,7 @@ def find_match_values(conds_pred, current_output, sorted_result):
     if len(conds_pred) > len(current_output):  # find value with same column
         select_col = [v[0] for v in current_output]
         conds_col = {v[0]: v for v in conds_pred}
-        for v, p in sorted_result:
+        for v, _ in sorted_result:
             if v[0] in conds_col and v[0] not in select_col:
                 col_op = conds_col[v[0]]
                 current_output.append((col_op[0], col_op[1], v[2]))
@@ -417,37 +376,34 @@ def load_preds(pred_file):
 
 
 @func_timer
-def synchronize_nl_pair(test_data, test_map):
+def synchronize_candidate_per_table(dataset, conds_candidate):
     table_group = defaultdict(list)
-    for idx, data in enumerate(test_data):
-        table_group[data.table.id].append((idx, data.question.text.lower()))
+    for data in dataset:
+        table_group[data.table.id].append(data.question.text.lower())
 
     for table_id in table_group:
         question_list = table_group[table_id]
-        col_value_map = {}
-        for q in question_list:
-            real_col_value = test_map[q[1]]
-            col_value_map.update({v: k for k, v in real_col_value.items()})
+        col_value_candidate = {}
+        for question in question_list:
+            col_value_candidate.update(conds_candidate[question])
 
-        col_values = {v: k for k, v in col_value_map.items()}
-        for q in question_list:
-            test_map[q[1]] = col_values
+        for question in question_list:
+            conds_candidate[question] = col_value_candidate
 
-    return test_map
+    return conds_candidate
 
 
-def to_data_pair(dataset, maps, istrain=False):
+def to_data_pair(dataset, cond_value_candidate, istrain=False):
     data_pair = []
     for data in dataset:
         question = data.question.text.lower()
-        value_map = maps[question]
-        candidates = value_map
+        candidate = cond_value_candidate[question]
         if istrain:
             conds = {tuple(c): 1 for c in data.sql.conds}
         else:
             conds = {}
-        pairs = [(question, k, 1) if v in conds else (question, k, 0)
-                 for k, v in candidates.items()]
+        pairs = [(question, cand, 1) if label in conds else (question, cand, 0)
+                 for cand, label in candidate.items()]
         data_pair += pairs
     return data_pair
 
@@ -455,13 +411,13 @@ def to_data_pair(dataset, maps, istrain=False):
 def train(opt):
     train_tables = read_tables(opt.train_table_file)
     train_data = read_data(opt.train_data_file, train_tables)
-    train_map = synthesis_nl_pair(train_data[:])
-    train_pair = to_data_pair(train_data, train_map, istrain=True)
+    train_candidate = generate_dataset_candidate(train_data)
+    train_pair = to_data_pair(train_data, train_candidate, istrain=True)
 
     val_tables = read_tables(opt.val_table_file)
     val_data = read_data(opt.val_data_file, val_tables)
-    val_map = synthesis_nl_pair(val_data[:])
-    val_pair = to_data_pair(val_data, val_map, istrain=True)
+    val_candidate = generate_dataset_candidate(val_data[:])
+    val_pair = to_data_pair(val_data, val_candidate, istrain=True)
 
     train_pair = train_pair + val_pair
 
@@ -488,22 +444,23 @@ def predict(opt):
 
     if opt.synthesis_with_task1_output:
         print('generating selected test pairs')
-        test_map = synthesis_nl_pair_selected(test_data, task1_preds)
+        test_candidate = generate_dataset_candidate_selected(
+            test_data, task1_preds)
     else:
         print('generating all test pairs')
-        test_map = synthesis_nl_pair(test_data)
+        test_candidate = generate_dataset_candidate(test_data)
 
     paths = get_checkpoint_paths(opt.bert_model)
     model, tokenizer = construct_model(paths)
     model.load_weights(opt.model_weights)
 
-    test_map = synchronize_nl_pair(test_data, test_map)
-    test_pair = to_data_pair(test_data, test_map, istrain=False)
+    test_candidate = synchronize_candidate_per_table(test_data, test_candidate)
+    test_pair = to_data_pair(test_data, test_candidate, istrain=False)
     print('n_test_pair: {}'.format(len(test_pair)))
     test_iter = DataSequence(test_pair, tokenizer,
                              batch_size=opt.batch_size, shuffle=False)
     test_preds = model.predict_generator(test_iter, verbose=1)
-    task2_preds = merge_question_values(test_pair, test_map, test_preds)
+    task2_preds = merge_question_values(test_pair, test_candidate, test_preds)
 
     n_empty_sel = 0
     n_empty_conds = 0

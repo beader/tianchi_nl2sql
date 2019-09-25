@@ -270,7 +270,7 @@ class EvaluateCallback(Callback):
             preds_cond_conn_op, preds_sel_agg, preds_cond_op = self.model.predict_on_batch(
                 batch_data)
             sqls = outputs_to_sqls(preds_cond_conn_op, preds_sel_agg, preds_cond_op,
-                                   header_lens, val_dataseq.label_encoder)
+                                   header_lens, self.val_dataseq.label_encoder)
             pred_sqls += sqls
         conn_correct = 0
         agg_correct = 0

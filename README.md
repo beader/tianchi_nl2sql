@@ -12,7 +12,7 @@
 
 - 感谢追一科技的孙宁远对本次比赛做了细致的赛前辅导
 - 感谢追一科技研究员、[科学空间](https://kexue.fm/)博主苏剑林，分享了大量关于NLP方面的优质博文。本方案受到了[基于Bert的NL2SQL模型：一个简明的Baseline](https://kexue.fm/archives/6771)这篇文章的启发。项目中使用的 RAdam 优化器的实现直接来自于苏剑林开源的 [keras_radam](https://github.com/bojone/keras_radam/blob/master/radam.py) 项目
-- 感谢 CyberZHG 大神的开源项目 [CyberZHG/keras-bert]，本次比赛中我们使用了 keras-bert 构建我们的模型。
+- 感谢 CyberZHG 大神的开源项目 [keras-bert](https://github.com/CyberZHG/keras-bert)，本次比赛中我们使用了 keras-bert 构建我们的模型。
 - 感谢哈工大讯飞联合实验室的 [Chinese-BERT-wwm](https://github.com/ymcui/Chinese-BERT-wwm) 项目，本次比赛中我们使用了他们`BERT-wwm, Chinese` 预训练模型参数
 
 ## 背景

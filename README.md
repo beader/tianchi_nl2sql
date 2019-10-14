@@ -1,66 +1,25 @@
 # 首届中文NL2SQL挑战赛
 
-团队名: Model S
+[竞赛链接](https://tianchi.aliyun.com/competition/entrance/231716/introduction)
 
-### 环境依赖
+>:warning: 由于可能存在的版权问题，请自行联系竞赛平台或主办方索要竞赛数据，谢谢!
 
-深度学习框架: tensorflow, keras
+## 成绩
 
-Docker 镜像:
+本项目所采用的方案在复赛中的线上排名为第五，决赛成绩为第三。主分支下的代码以 jupyter notebook 的形式呈现，以学习交流为目的，对原始的代码经过一定的整理，并不会完全复现线上的结果，但效果不会差太多。
 
-|REPOSITORY|TAG|IMAGE ID|
-|:---:|:---:|:---:|
-|tensorflow/tensorflow|nightly-gpu-py3-jupyter|6e60684e9aa4|
+## 致谢
 
-CUDA 版本: 10.0.130
+- 感谢追一科技的孙宁远对本次比赛做了细致的赛前辅导。
+- 感谢追一科技研究员、[科学空间](https://kexue.fm/)博主苏剑林，分享了大量关于NLP方面的优质博文。本方案受到了[基于Bert的NL2SQL模型：一个简明的Baseline]这篇文章的启发。项目中使用的 RAdam 优化器的实现直接来自于苏剑林开源的 [keras_radam](https://github.com/bojone/keras_radam/blob/master/radam.py) 项目。
+- 感谢 CyberZHG 大神的开源项目 [CyberZHG/keras-bert]，本次比赛中我们使用了 keras-bert 构建我们的模型。
+- 感谢哈工大讯飞联合实验室的 [Chinese-BERT-wwm](https://github.com/ymcui/Chinese-BERT-wwm) 项目，本次比赛中我们使用了他们`BERT-wwm, Chinese` 预训练模型参数。
 
-Python 依赖:
+## 背景
 
-见 `./code/requirements.txt`
+首届中文NL2SQL挑战赛，使用金融以及通用领域的表格数据作为数据源，提供在此基础上标注的自然语言与SQL语句的匹配对，希望选手可以利用数据训练出可以准确转换自然语言到SQL的模型。
 
-通过该 sh 命令安装依赖
-```
-pip install -r ./code/requirements.txt
-```
+模型的输入为一个 Question + Table，输出一个 SQL 结构，该 SQL 结构对应一条 SQL 语句。
 
-### 训练
+![](./imgs/terminology.png)
 
-NL2SQL 场景需要预测的结果包含以下几个部分:
-
-```
-- sel
-- agg
-- conds
-  - [(col_id, cond_op, cond_val), ...]
-```
-
-训练将分为独立的两个任务进行。
-
-- task1 负责对 `sel`, `agg`, `cond_conn_op` 以及 `conds` 当中的 `col_id`, `cond_op` 目标进行训练。
-- task2 负责对 `conds` 中的 `col_id`, `cond_op`, `cond_val` 目标进行训练。
-
-
-在 `./code` 目录下，执行
-
-```
-python task1.py train --model_dir ../model/
-```
-
-```
-python task2.py train --model_dir ../model/
-```
-
-
-### 推断
-
-推断的时候，先执行 task1，再执行 task2
-
-在 `./code` 目录下，执行
-
-```
-python task1.py infer --model_weights ../model/task1.12-0.852.h5 --output_file ../submit/task1_output.json
-```
-
-```
-python task2.py infer --model_weights ../model/task2.h5 --output_file ../submit/submit.json
-```

@@ -6,7 +6,11 @@
 
 ## 成绩
 
-本项目所采用的方案在复赛中的线上排名为第五，决赛成绩为第三。主分支下的代码以 jupyter notebook 的形式呈现，以学习交流为目的，对原始的代码经过一定的整理，并不会完全复现线上的结果，但效果不会差太多。
+本项目所采用的方案在复赛中的线上排名为第五，决赛成绩为第三。
+
+主分支下的代码以 jupyter notebook 的形式呈现，以学习交流为目的，对原始的代码经过一定的整理，并不会完全复现线上的结果，但效果不会差太多。
+
+code 目录下的 [model1.ipynb](https://nbviewer.jupyter.org/https://github.com/beader/tianchi_nl2sql/blob/master/code/model1.ipynb) 与 `model2.ipynb(待更新)` 为建模流程，`nl2sql/utils` 目录则包含了该任务所需的一些基础函数和数据结构。
 
 ## 致谢
 

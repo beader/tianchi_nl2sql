@@ -30,8 +30,8 @@ code 目录下的 [model1.ipynb](https://nbviewer.jupyter.org/github/beader/tian
 其中 
 - `sel` 为一个 list，代表 `SELECT` 语句所选取的列
 - `agg` 为一个 list，与 `sel` 一一对应，表示对该列做哪个聚合操作，比如 sum, max, min 等
-- `conds` 为一个 list，代表 `WHERE` 语句中的的一系列条件，每个条件由 (比较列, 比较符，比较值) 构成的三元组构成
-- `cond_conn_op` 为一个 int，代表 `conds` 中各条件之间的并列关系，and 或者 or
+- `conds` 为一个 list，代表 `WHERE` 语句中的的一系列条件，每个条件是一个由 (条件列，条件运算符，条件值) 构成的三元组
+- `cond_conn_op` 为一个 int，代表 `conds` 中各条件之间的并列关系，可以是 and 或者 or
 
 ## 方案介绍
 

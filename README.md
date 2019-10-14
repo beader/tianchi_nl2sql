@@ -64,6 +64,8 @@ Model 2 的架构如下:
 
 ![](./imgs/model2_merge.png)
 
+### 模型训练中的一些探索尝试
 
+关于模型训练中的优化，以及一些成功、不成功的 idea，详细可以见我们[决赛答辩ppt](./imgs/ModelS答辩ppt.pdf)。
 
 

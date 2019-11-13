@@ -4,6 +4,8 @@
 
 >:warning: 由于可能存在的版权问题，请自行联系竞赛平台或主办方索要竞赛数据，谢谢!
 
+>:bulb: 代码运行环境至文末
+
 ## 成绩
 
 本项目所采用的方案在复赛中的线上排名为第5，决赛最终成绩排名第3。
@@ -71,3 +73,22 @@ Model 2 的架构如下:
 ### 模型训练中的一些探索尝试
 
 关于模型训练中的优化，以及一些成功、不成功的 idea，详细可以见我们[决赛答辩ppt](./imgs/ModelS答辩ppt.pdf)。
+
+### 代码运行环境
+
+深度学习框架: tensorflow, keras
+
+具体版本见 [requirements.txt](./requirements.txt)
+
+更方便的做法是在 Docker 中运行。比赛中用了如下 Docker 镜像
+
+|REPOSITORY|TAG|IMAGE ID|
+|:---:|:---:|:---:|
+|tensorflow/tensorflow|nightly-gpu-py3-jupyter|6e60684e9aa4|
+
+可以通过如下命令拉取对应镜像
+
+```bash
+docker pull tensorflow/tensorflow@sha256:6e60684e9aa42708d52085066de36503a17ad76e91739f0f805d1a08d3941705
+docker tag 6e60684e9aa4 tensorflow/tensorflow:nightly-gpu-py3-jupyter
+```

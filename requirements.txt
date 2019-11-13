@@ -1,0 +1,8 @@
+pyyaml
+tqdm
+pandas
+keras==2.2.4
+keras-bert==0.68.1
+cn2an==0.3.6
+thulac==0.2.0
+zhon==1.1.5

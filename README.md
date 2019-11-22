@@ -86,9 +86,8 @@ Model 2 的架构如下:
 |:---:|:---:|:---:|
 |tensorflow/tensorflow|nightly-gpu-py3-jupyter|6e60684e9aa4|
 
-可以通过如下命令拉取对应镜像
+由于需要用到 python3.6，使用了 tensorflow nightly build 的镜像，我将比赛时用的镜像传到 docker hub 上了，可以通过如下命令获取。
 
 ```bash
-docker pull tensorflow/tensorflow@sha256:6e60684e9aa42708d52085066de36503a17ad76e91739f0f805d1a08d3941705
-docker tag 6e60684e9aa4 tensorflow/tensorflow:nightly-gpu-py3-jupyter
+docker pull beader/tensorflow:nightly-gpu-py3-jupyter
 ```

@@ -2,9 +2,9 @@
 
 [竞赛链接](https://tianchi.aliyun.com/competition/entrance/231716/introduction)
 
->:warning: 由于可能存在的版权问题，请自行联系竞赛平台或主办方索要竞赛数据，谢谢!
+>💡 数据集主办方已公开，可以前往 https://github.com/ZhuiyiTechnology/TableQA 下载
 
->:bulb: 代码运行环境至文末
+>💡 代码运行环境至文末
 
 ## 成绩
 
